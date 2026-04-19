@@ -1,0 +1,5 @@
+.env
+ml/model/model.pkl
+ml/plots/
+**/__pycache__/
+*.pyc

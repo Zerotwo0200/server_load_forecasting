@@ -1,0 +1,165 @@
+{
+  "title": "Прогнозирование нагрузки инфраструктуры",
+  "uid": "thesis-main",
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+
+    {
+      "id": 1,
+      "title": "CPU — реальная нагрузка (%)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)",
+        "legendFormat": "CPU usage"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "color": { "mode": "fixed", "fixedColor": "#5794F2" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 85 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+
+    {
+      "id": 2,
+      "title": "CPU — прогноз ML (из БД)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": "PostgreSQL",
+      "targets": [{
+        "rawSql": "SELECT target_time AS time, predicted_value AS \"CPU прогноз\" FROM predictions WHERE metric_name = 'cpu_usage' AND target_time >= NOW() - INTERVAL '3 hours' ORDER BY target_time",
+        "format": "time_series"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "color": { "mode": "fixed", "fixedColor": "#FF9830" },
+          "custom": { "lineStyle": { "fill": "dash", "dash": [6, 4] } }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+
+    {
+      "id": 3,
+      "title": "RAM — реальная нагрузка (%)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+        "legendFormat": "RAM usage"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "color": { "mode": "fixed", "fixedColor": "#73BF69" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+
+    {
+      "id": 4,
+      "title": "RAM — прогноз ML (из БД)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": "PostgreSQL",
+      "targets": [{
+        "rawSql": "SELECT target_time AS time, predicted_value AS \"RAM прогноз\" FROM predictions WHERE metric_name = 'ram_usage' AND target_time >= NOW() - INTERVAL '3 hours' ORDER BY target_time",
+        "format": "time_series"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "color": { "mode": "fixed", "fixedColor": "#B877D9" },
+          "custom": { "lineStyle": { "fill": "dash", "dash": [6, 4] } }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+
+    {
+      "id": 5,
+      "title": "Disk — использование (%)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "(node_filesystem_size_bytes{mountpoint=\"/\"} - node_filesystem_avail_bytes{mountpoint=\"/\"}) / node_filesystem_size_bytes{mountpoint=\"/\"} * 100",
+        "legendFormat": "Disk usage"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "color": { "mode": "fixed", "fixedColor": "#F2CC0C" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 75 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+
+    {
+      "id": 6,
+      "title": "Статистика модели",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "datasource": "PostgreSQL",
+      "targets": [{
+        "rawSql": "SELECT metric_name AS \"Метрика\", model_version AS \"Версия\", COUNT(*) AS \"Прогнозов\", ROUND(AVG(predicted_value)::numeric, 2) AS \"Среднее\", ROUND(MIN(predicted_value)::numeric, 2) AS \"Мин\", ROUND(MAX(predicted_value)::numeric, 2) AS \"Макс\" FROM predictions WHERE predicted_at >= NOW() - INTERVAL '24 hours' GROUP BY metric_name, model_version ORDER BY metric_name",
+        "format": "table"
+      }],
+      "options": { "sortBy": [] },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto" } } }
+    }
+
+  ]
+}
