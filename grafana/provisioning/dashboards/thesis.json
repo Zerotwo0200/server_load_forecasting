@@ -1,165 +1,136 @@
 {
-  "title": "Прогнозирование нагрузки инфраструктуры",
-  "uid": "thesis-main",
+  "title": "Прогнозирование нагрузки",
+  "uid": "thesis-v2",
   "timezone": "browser",
-  "refresh": "1m",
-  "time": { "from": "now-3h", "to": "now" },
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now+1h"},
+  "templating": {
+    "list": [
+      {
+        "name": "metric",
+        "label": "Метрика",
+        "type": "custom",
+        "current": {"value": "cpu_usage", "text": "CPU"},
+        "options": [
+          {"value": "cpu_usage",  "text": "CPU",  "selected": true},
+          {"value": "ram_usage",  "text": "RAM",  "selected": false},
+          {"value": "disk_usage", "text": "Disk", "selected": false}
+        ],
+        "query": "cpu_usage,ram_usage,disk_usage"
+      },
+      {
+        "name": "steps",
+        "label": "Горизонт прогноза",
+        "type": "custom",
+        "current": {"value": "15", "text": "15 мин"},
+        "options": [
+          {"value": "5",  "text": "5 мин",  "selected": false},
+          {"value": "10", "text": "10 мин", "selected": false},
+          {"value": "15", "text": "15 мин", "selected": true},
+          {"value": "30", "text": "30 мин", "selected": false},
+          {"value": "60", "text": "60 мин", "selected": false}
+        ],
+        "query": "5,10,15,30,60"
+      }
+    ]
+  },
   "panels": [
-
     {
       "id": 1,
-      "title": "CPU — реальная нагрузка (%)",
+      "title": "Реальная нагрузка (${metric})",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 9},
       "datasource": "Prometheus",
-      "targets": [{
-        "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)",
-        "legendFormat": "CPU usage"
-      }],
+      "targets": [
+        {
+          "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)",
+          "legendFormat": "CPU — факт",
+          "refId": "A"
+        },
+        {
+          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100",
+          "legendFormat": "RAM — факт",
+          "refId": "B"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "min": 0, "max": 100,
-          "color": { "mode": "fixed", "fixedColor": "#5794F2" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 60 },
-              { "color": "red", "value": 85 }
-            ]
-          }
+          "unit": "percent", "min": 0, "max": 100,
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 65},
+            {"color": "red", "value": 85}
+          ]},
+          "custom": {"lineWidth": 2, "fillOpacity": 10}
         }
       },
-      "options": {
-        "tooltip": { "mode": "single" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
-      }
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list"}}
     },
-
     {
       "id": 2,
-      "title": "CPU — прогноз ML (из БД)",
+      "title": "Прогноз — ${metric} на ${steps} мин",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "gridPos": {"x": 0, "y": 9, "w": 24, "h": 9},
       "datasource": "PostgreSQL",
-      "targets": [{
-        "rawSql": "SELECT target_time AS time, predicted_value AS \"CPU прогноз\" FROM predictions WHERE metric_name = 'cpu_usage' AND target_time >= NOW() - INTERVAL '3 hours' ORDER BY target_time",
-        "format": "time_series"
-      }],
+      "targets": [
+        {
+          "rawSql": "SELECT target_time AS time, predicted_value AS \"Прогноз ${metric}\" FROM predictions WHERE metric_name = '${metric}' AND target_time >= NOW() AND target_time <= NOW() + make_interval(mins => ${steps}) AND predicted_at >= NOW() - INTERVAL '2 minutes' ORDER BY target_time",
+          "format": "time_series",
+          "refId": "A"
+        },
+        {
+          "rawSql": "SELECT target_time AS time, threshold AS \"Порог алерта\" FROM alert_configs JOIN LATERAL (SELECT NOW() + make_interval(mins => steps) AS target_time) t ON TRUE WHERE metric_name = '${metric}' AND steps = ${steps} AND enabled = TRUE LIMIT 1",
+          "format": "time_series",
+          "refId": "B"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "min": 0, "max": 100,
-          "color": { "mode": "fixed", "fixedColor": "#FF9830" },
-          "custom": { "lineStyle": { "fill": "dash", "dash": [6, 4] } }
-        }
+          "unit": "percent", "min": 0, "max": 100,
+          "custom": {"lineWidth": 2, "fillOpacity": 5, "lineStyle": {"fill": "dash", "dash": [8, 4]}}
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Порог алерта"},
+            "properties": [
+              {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}},
+              {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [4, 4]}},
+              {"id": "custom.lineWidth", "value": 1}
+            ]
+          }
+        ]
       },
-      "options": {
-        "tooltip": { "mode": "single" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
-      }
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list"}}
     },
-
     {
       "id": 3,
-      "title": "RAM — реальная нагрузка (%)",
-      "type": "timeseries",
-      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
-      "datasource": "Prometheus",
-      "targets": [{
-        "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
-        "legendFormat": "RAM usage"
-      }],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "min": 0, "max": 100,
-          "color": { "mode": "fixed", "fixedColor": "#73BF69" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 70 },
-              { "color": "red", "value": 90 }
-            ]
-          }
-        }
-      },
-      "options": {
-        "tooltip": { "mode": "single" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
-      }
-    },
-
-    {
-      "id": 4,
-      "title": "RAM — прогноз ML (из БД)",
-      "type": "timeseries",
-      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
-      "datasource": "PostgreSQL",
-      "targets": [{
-        "rawSql": "SELECT target_time AS time, predicted_value AS \"RAM прогноз\" FROM predictions WHERE metric_name = 'ram_usage' AND target_time >= NOW() - INTERVAL '3 hours' ORDER BY target_time",
-        "format": "time_series"
-      }],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "min": 0, "max": 100,
-          "color": { "mode": "fixed", "fixedColor": "#B877D9" },
-          "custom": { "lineStyle": { "fill": "dash", "dash": [6, 4] } }
-        }
-      },
-      "options": {
-        "tooltip": { "mode": "single" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
-      }
-    },
-
-    {
-      "id": 5,
-      "title": "Disk — использование (%)",
-      "type": "timeseries",
-      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
-      "datasource": "Prometheus",
-      "targets": [{
-        "expr": "(node_filesystem_size_bytes{mountpoint=\"/\"} - node_filesystem_avail_bytes{mountpoint=\"/\"}) / node_filesystem_size_bytes{mountpoint=\"/\"} * 100",
-        "legendFormat": "Disk usage"
-      }],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "min": 0, "max": 100,
-          "color": { "mode": "fixed", "fixedColor": "#F2CC0C" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 75 },
-              { "color": "red", "value": 90 }
-            ]
-          }
-        }
-      },
-      "options": {
-        "tooltip": { "mode": "single" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
-      }
-    },
-
-    {
-      "id": 6,
-      "title": "Статистика модели",
+      "title": "Алерты — последние события",
       "type": "table",
-      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "gridPos": {"x": 0, "y": 18, "w": 24, "h": 8},
       "datasource": "PostgreSQL",
-      "targets": [{
-        "rawSql": "SELECT metric_name AS \"Метрика\", model_version AS \"Версия\", COUNT(*) AS \"Прогнозов\", ROUND(AVG(predicted_value)::numeric, 2) AS \"Среднее\", ROUND(MIN(predicted_value)::numeric, 2) AS \"Мин\", ROUND(MAX(predicted_value)::numeric, 2) AS \"Макс\" FROM predictions WHERE predicted_at >= NOW() - INTERVAL '24 hours' GROUP BY metric_name, model_version ORDER BY metric_name",
-        "format": "table"
-      }],
-      "options": { "sortBy": [] },
-      "fieldConfig": { "defaults": { "custom": { "align": "auto" } } }
+      "targets": [
+        {
+          "rawSql": "SELECT triggered_at AS \"Время\", metric_name AS \"Метрика\", steps AS \"Горизонт (мин)\", threshold AS \"Порог\", predicted_value AS \"Прогноз\", message AS \"Сообщение\" FROM alert_events ORDER BY triggered_at DESC LIMIT 20",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Прогноз"},
+            "properties": [
+              {"id": "unit", "value": "percent"},
+              {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 65},
+                {"color": "red", "value": 85}
+              ]}},
+              {"id": "custom.displayMode", "value": "color-background"}
+            ]
+          }
+        ]
+      }
     }
-
   ]
 }
