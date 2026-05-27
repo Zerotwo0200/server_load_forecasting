@@ -30,8 +30,8 @@ DB_CONFIG = {
     "dbname":   os.getenv("POSTGRES_DB", "metrics_db"),
 }
 
-LAGS        = 6          # количество лагов (признаки)
-HORIZON     = 1          # шагов вперёд для обучения
+LAGS        = 60          # количество лагов (признаки)
+HORIZON     = 15          # шагов вперёд для обучения
 TARGET      = "cpu_usage"  # основная целевая метрика
 MODEL_PATH  = os.getenv("MODEL_PATH", "model/model.pkl")
 PLOTS_DIR   = "plots"
@@ -89,6 +89,8 @@ def build_features(df: pd.DataFrame, target: str, lags: int, horizon: int) -> tu
             "weekday":    df.index[i].weekday(),
             "ram_usage":  float(df["ram_usage"].iloc[i]),
             "disk_usage": float(df["disk_usage"].iloc[i]),
+            "net_rx": float(df["net_rx_bytes"].iloc[i]),
+            "net_tx": float(df["net_tx_bytes"].iloc[i]),
         }
         label = float(values[i + horizon - 1])
         records.append((feat, label))
@@ -112,8 +114,8 @@ def train(X: pd.DataFrame, y: np.ndarray) -> tuple:
         y_tr, y_val = y[train_idx],        y[val_idx]
 
         model = lgb.LGBMRegressor(
-            n_estimators=300,
-            learning_rate=0.05,
+            n_estimators=1000,
+            learning_rate=0.02,
             max_depth=6,
             num_leaves=31,
             min_child_samples=10,
@@ -131,6 +133,8 @@ def train(X: pd.DataFrame, y: np.ndarray) -> tuple:
         )
 
         preds = model.predict(X_val)
+        residuals = y_val - preds
+        std = np.std(residuals)
         mae  = mean_absolute_error(y_val, preds)
         rmse = mean_squared_error(y_val, preds) ** 0.5
         r2   = r2_score(y_val, preds)

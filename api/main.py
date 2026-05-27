@@ -4,6 +4,7 @@ from typing import Optional
 
 import numpy as np
 import psycopg2, psycopg2.extras
+from recommendations import generate_recommendation
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -328,5 +329,82 @@ def get_alert_events(limit: int = Query(50, ge=1, le=500)):
                 "SELECT * FROM alert_events "
                 "ORDER BY triggered_at DESC LIMIT %s", (limit,))
             return [dict(r) for r in cur.fetchall()]
+    finally:
+        c.close()
+
+@app.get("/recommendation")
+
+def recommendation():
+
+    cpu_preds = fetch_latest_predictions("cpu_usage", 15)
+    ram_preds = fetch_latest_predictions("ram_usage", 15)
+
+    if not cpu_preds or not ram_preds:
+        raise HTTPException(status_code=404, detail="No predictions")
+
+    cpu_avg = sum(cpu_preds) / len(cpu_preds)
+    ram_avg = sum(ram_preds) / len(ram_preds)
+
+    rec = generate_recommendation(cpu_avg, ram_avg)
+
+    # Вставляем код сохранения в БД сюда
+    with c.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO recommendations (
+                predicted_cpu,
+                predicted_ram,
+                recommendation,
+                status,
+                message
+            )
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (
+                cpu_avg,
+                ram_avg,
+                rec["recommendation"],
+                rec["status"],
+                rec["message"]
+            )
+        )
+
+    return {
+        "predicted_cpu": round(cpu_avg, 2),
+        "predicted_ram": round(ram_avg, 2),
+        **rec
+    }
+
+
+@app.post("/simulate-scale")
+def simulate_scale():
+
+    return {
+        "action": "docker compose up --scale app=2",
+        "status": "simulated",
+        "message": "Additional server instance started"
+    }
+
+def fetch_latest_predictions(metric, limit=15):
+
+    c = conn()
+
+    try:
+        with c.cursor() as cur:
+            cur.execute(
+                """
+                SELECT predicted_value
+                FROM predictions
+                WHERE metric_name = %s
+                ORDER BY target_time ASC
+                LIMIT %s
+                """,
+                (metric, limit)
+            )
+
+            rows = cur.fetchall()
+
+            return [float(r["predicted_value"]) for r in rows]
+
     finally:
         c.close()

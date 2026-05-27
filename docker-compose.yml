@@ -124,6 +124,12 @@ services:
     profiles:
       - train
 
+  synthetic-generator:
+    build: ./ml
+    command: python synthetic_generator.py
+    depends_on:
+      - postgres
+
 volumes:
   postgres_data:
   prometheus_data:

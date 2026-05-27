@@ -19,6 +19,16 @@ CREATE TABLE IF NOT EXISTS predictions (
     model_version VARCHAR(32)
 );
 
+CREATE TABLE IF NOT EXISTS recommendations (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMP DEFAULT NOW(),
+    predicted_cpu FLOAT,
+    predicted_ram FLOAT,
+    recommendation TEXT,
+    status TEXT,
+    message TEXT
+);
+
 -- Индексы для быстрых выборок по времени
 CREATE INDEX IF NOT EXISTS idx_metrics_collected_at ON metrics (collected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_predictions_target_time ON predictions (target_time DESC);
