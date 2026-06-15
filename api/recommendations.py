@@ -5,10 +5,8 @@ CPU_LOW = 25
 RAM_WARNING = 75
 RAM_CRITICAL = 90
 
-
-
 def generate_recommendation(cpu_pred, ram_pred, active_servers=1):
-
+    
     if cpu_pred >= CPU_CRITICAL or ram_pred >= RAM_CRITICAL:
         return {
             "status": "critical",
@@ -38,5 +36,4 @@ def generate_recommendation(cpu_pred, ram_pred, active_servers=1):
         "recommendation": "NONE",
         "message": "System stable",
         "priority": "none"
-    0}
-
+    }

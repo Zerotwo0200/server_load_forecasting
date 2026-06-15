@@ -1,6 +1,4 @@
-
 services:
-
   postgres:
     image: postgres:15-alpine
     container_name: thesis_postgres
@@ -21,34 +19,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  node-exporter:
-    image: prom/node-exporter:latest
-    container_name: thesis_node_exporter
-    command:
-      - "--path.rootfs=/host"
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/host:ro,rslave
-    ports:
-      - "9100:9100"
-    restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: thesis_prometheus
-    volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    ports:
-      - "9090:9090"
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.retention.time=30d"
-    depends_on:
-      - node-exporter
-    restart: unless-stopped
-
   grafana:
     image: grafana/grafana:latest
     container_name: thesis_grafana
@@ -63,27 +33,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - prometheus
-      - postgres
-    restart: unless-stopped
-
-  collector:
-    build: ./collector
-    container_name: thesis_collector
-    env_file: .env
-    environment:
-      PROMETHEUS_URL: http://prometheus:9090
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      COLLECT_INTERVAL: 60
-    depends_on:
       postgres:
         condition: service_healthy
-      prometheus:
-        condition: service_started
     restart: unless-stopped
 
   api:
@@ -115,22 +66,31 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      MODEL_PATH: /app/model.pkl
+      MODEL_PATH: /app/model/model.pkl
     volumes:
       - ./ml/model:/app/model
     depends_on:
       postgres:
         condition: service_healthy
-    profiles:
-      - train
 
   synthetic-generator:
     build: ./ml
+    container_name: thesis_generator
     command: python synthetic_generator.py
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./ml:/app  # Важный фикс: теперь контейнер видит скрипт!
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:
-  prometheus_data:
   grafana_data:

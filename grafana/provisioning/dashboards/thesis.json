@@ -1,20 +1,38 @@
 {
-  "title": "Прогнозирование нагрузки",
-  "uid": "thesis-v2",
+  "title": "Интеллектуальное управление инфраструктурой",
+  "uid": "thesis-smart-v5",
   "timezone": "browser",
-  "refresh": "30s",
-  "time": {"from": "now-1h", "to": "now+1h"},
+  "refresh": "10s",
+  "time": {
+    "from": "now-6h",
+    "to": "now+1h"
+  },
   "templating": {
     "list": [
       {
         "name": "metric",
         "label": "Метрика",
         "type": "custom",
-        "current": {"value": "cpu_usage", "text": "CPU"},
+        "current": {
+          "value": "cpu_usage",
+          "text": "CPU"
+        },
         "options": [
-          {"value": "cpu_usage",  "text": "CPU",  "selected": true},
-          {"value": "ram_usage",  "text": "RAM",  "selected": false},
-          {"value": "disk_usage", "text": "Disk", "selected": false}
+          {
+            "value": "cpu_usage",
+            "text": "CPU",
+            "selected": true
+          },
+          {
+            "value": "ram_usage",
+            "text": "RAM",
+            "selected": false
+          },
+          {
+            "value": "disk_usage",
+            "text": "Disk",
+            "selected": false
+          }
         ],
         "query": "cpu_usage,ram_usage,disk_usage"
       },
@@ -22,13 +40,32 @@
         "name": "steps",
         "label": "Горизонт прогноза",
         "type": "custom",
-        "current": {"value": "15", "text": "15 мин"},
+        "current": {
+          "value": "15",
+          "text": "15 мин"
+        },
         "options": [
-          {"value": "5",  "text": "5 мин",  "selected": false},
-          {"value": "10", "text": "10 мин", "selected": false},
-          {"value": "15", "text": "15 мин", "selected": true},
-          {"value": "30", "text": "30 мин", "selected": false},
-          {"value": "60", "text": "60 мин", "selected": false}
+          {
+            "value": "5",
+            "text": "5 мин"
+          },
+          {
+            "value": "10",
+            "text": "10 мин"
+          },
+          {
+            "value": "15",
+            "text": "15 мин",
+            "selected": true
+          },
+          {
+            "value": "30",
+            "text": "30 мин"
+          },
+          {
+            "value": "60",
+            "text": "60 мин"
+          }
         ],
         "query": "5,10,15,30,60"
       }
@@ -36,101 +73,429 @@
   },
   "panels": [
     {
-      "id": 1,
-      "title": "Реальная нагрузка (${metric})",
-      "type": "timeseries",
-      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 9},
-      "datasource": "Prometheus",
+      "id": 5,
+      "title": "Текущий размер инфраструктуры",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "PostgreSQL"
+      },
       "targets": [
         {
-          "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)",
-          "legendFormat": "CPU — факт",
+          "format": "table",
+          "rawSql": "SELECT new_size || ' СЕРВЕРА' AS value FROM scaling_history ORDER BY event_time DESC LIMIT 1",
           "refId": "A"
-        },
-        {
-          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100",
-          "legendFormat": "RAM — факт",
-          "refId": "B"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "min": 0, "max": 100,
-          "thresholds": {"mode": "absolute", "steps": [
-            {"color": "green", "value": null},
-            {"color": "yellow", "value": 65},
-            {"color": "red", "value": 85}
-          ]},
-          "custom": {"lineWidth": 2, "fillOpacity": 10}
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
         }
       },
-      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list"}}
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      }
     },
     {
       "id": 2,
-      "title": "Прогноз — ${metric} на ${steps} мин",
-      "type": "timeseries",
-      "gridPos": {"x": 0, "y": 9, "w": 24, "h": 9},
-      "datasource": "PostgreSQL",
+      "title": "Статус системы",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 9,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "PostgreSQL"
+      },
       "targets": [
         {
-          "rawSql": "SELECT target_time AS time, predicted_value AS \"Прогноз ${metric}\" FROM predictions WHERE metric_name = '${metric}' AND target_time >= NOW() AND target_time <= NOW() + make_interval(mins => ${steps}) AND predicted_at >= NOW() - INTERVAL '2 minutes' ORDER BY target_time",
-          "format": "time_series",
+          "format": "table",
+          "rawSql": "SELECT message AS value FROM recommendations ORDER BY created_at DESC LIMIT 1",
           "refId": "A"
-        },
-        {
-          "rawSql": "SELECT target_time AS time, threshold AS \"Порог алерта\" FROM alert_configs JOIN LATERAL (SELECT NOW() + make_interval(mins => steps) AS target_time) t ON TRUE WHERE metric_name = '${metric}' AND steps = ${steps} AND enabled = TRUE LIMIT 1",
-          "format": "time_series",
-          "refId": "B"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "min": 0, "max": 100,
-          "custom": {"lineWidth": 2, "fillOpacity": 5, "lineStyle": {"fill": "dash", "dash": [8, 4]}}
-        },
-        "overrides": [
-          {
-            "matcher": {"id": "byName", "options": "Порог алерта"},
-            "properties": [
-              {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}},
-              {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [4, 4]}},
-              {"id": "custom.lineWidth", "value": 1}
-            ]
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
           }
-        ]
+        }
       },
-      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list"}}
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      }
     },
     {
       "id": 3,
-      "title": "Алерты — последние события",
-      "type": "table",
-      "gridPos": {"x": 0, "y": 18, "w": 24, "h": 8},
-      "datasource": "PostgreSQL",
+      "title": "Управляющая команда алгоритма",
+      "type": "stat",
+      "gridPos": {
+        "x": 15,
+        "y": 0,
+        "w": 9,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "PostgreSQL"
+      },
       "targets": [
         {
-          "rawSql": "SELECT triggered_at AS \"Время\", metric_name AS \"Метрика\", steps AS \"Горизонт (мин)\", threshold AS \"Порог\", predicted_value AS \"Прогноз\", message AS \"Сообщение\" FROM alert_events ORDER BY triggered_at DESC LIMIT 20",
           "format": "table",
+          "rawSql": "SELECT recommendation AS value FROM recommendations ORDER BY created_at DESC LIMIT 1",
           "refId": "A"
         }
       ],
       "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 1,
+      "title": "Нагрузка кластера (Синтетический поток метрик)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "PostgreSQL"
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT collected_at AS time, cpu_usage AS \"CPU\", ram_usage AS \"RAM\", disk_usage AS \"Disk\" FROM metrics WHERE $__timeFilter(collected_at) ORDER BY collected_at ASC",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "gradientMode": "opacity"
+          },
+          "unit": "percent"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Анализ точности: Фактическая нагрузка vs Интеллектуальный прогноз",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "PostgreSQL"
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT collected_at AS time, $metric AS \"Факт\" FROM metrics WHERE $__timeFilter(collected_at) ORDER BY time ASC",
+          "refId": "Fact"
+        },
+        {
+          "format": "time_series",
+          "rawSql": "SELECT DISTINCT ON (date_trunc('minute', target_time))\n  target_time AS time,\n  predicted_value AS \"Прогноз (15 мин)\"\nFROM predictions\nWHERE metric_name = '$metric'\n  AND $__timeFilter(target_time)\n  AND ABS(EXTRACT(EPOCH FROM (target_time - predicted_at)) / 60 - 15) <= 1\nORDER BY date_trunc('minute', target_time), predicted_at DESC",
+          "refId": "Pred"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "gradientMode": "none"
+          }
+        },
         "overrides": [
           {
-            "matcher": {"id": "byName", "options": "Прогноз"},
+            "matcher": {
+              "id": "byName",
+              "options": "Прогноз"
+            },
             "properties": [
-              {"id": "unit", "value": "percent"},
-              {"id": "thresholds", "value": {"mode": "absolute", "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 65},
-                {"color": "red", "value": 85}
-              ]}},
-              {"id": "custom.displayMode", "value": "color-background"}
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    5,
+                    5
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Факт"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
             ]
           }
         ]
       }
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "PostgreSQL"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "line+area"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          },
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Прогноз.*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    8,
+                    4
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 5
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Факт.*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#73BF69",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "PostgreSQL"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT collected_at AS time, $metric AS \"Факт (текущий)\" FROM metrics WHERE collected_at >= NOW() - INTERVAL '30 minutes' ORDER BY collected_at ASC",
+          "refId": "Fact"
+        },
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "PostgreSQL"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT DISTINCT ON (date_trunc('minute', target_time))\n  target_time AS time,\n  predicted_value AS \"Прогноз ($steps мин)\"\nFROM predictions\nWHERE metric_name = '$metric'\n  AND target_time BETWEEN NOW() - INTERVAL '2 minutes' AND NOW() + INTERVAL '65 minutes'\n  AND ABS(EXTRACT(EPOCH FROM (target_time - predicted_at)) / 60 - $steps::int) <= 1\nORDER BY date_trunc('minute', target_time), predicted_at DESC",
+          "refId": "Forecast"
+        }
+      ],
+      "title": "Прогноз нагрузки на $steps минут вперёд (горизонт)",
+      "type": "timeseries"
+    },
+    {
+      "id": 6,
+      "title": "Журнал решений балансировки (LIVE Scaling Events)",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "PostgreSQL"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT to_char(created_at, 'HH24:MI:SS') AS \"Time\", CASE WHEN recommendation = 'ADD_2_SERVERS' THEN '🚀 SCALE UP (+2)' WHEN recommendation = 'ADD_SERVER' THEN '🔼 SCALE UP (+1)' WHEN recommendation = 'REMOVE_SERVER' THEN '🔽 SCALE DOWN (-1)' ELSE '🔄 KEEP STATE' END AS \"Action\", CASE WHEN status = 'critical' THEN '🔴 Critical' WHEN status = 'warning' THEN '🟡 Warning' WHEN status = 'low' THEN '🔵 Low' ELSE '🟢 Stable' END AS \"Urgency\", ROUND(predicted_cpu::numeric, 1) || '%' AS \"Predicted CPU\" FROM recommendations ORDER BY created_at DESC LIMIT 50",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "История изменения топологии кластера (Scaling History)",
+      "type": "table",
+      "gridPos": {
+        "x": 12,
+        "y": 29,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "PostgreSQL"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT to_char(event_time, 'DD.MM HH24:MI:SS') AS \"Время\", CASE WHEN action = 'SCALE_UP' THEN '📈 Расширение' WHEN action = 'SCALE_DOWN' THEN '📉 Сужение' ELSE '⚙️ Старт системы' END AS \"Действие\", old_size::text || ' ➔ ' || new_size::text AS \"Конфигурация\", trigger_reason AS \"Причина\" FROM scaling_history ORDER BY event_time DESC LIMIT 30",
+          "refId": "A"
+        }
+      ]
     }
-  ]
+  ],
+  "version": 2
 }

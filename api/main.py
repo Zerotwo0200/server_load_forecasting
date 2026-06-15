@@ -111,18 +111,19 @@ def reload_model():
         _cache.clear()
     return load_model()
 
-def make_features(series, lags=6, ram=0.0, disk=0.0):
+def make_features(series, lags=60, ram=0.0, disk=0.0, net_rx=0.0, net_tx=0.0):
     arr = np.array(series[-lags:], dtype=float)
     now = datetime.now(timezone.utc)
-    return np.array(
-        list(arr) +
-        [float(np.mean(arr)), float(np.std(arr)),
-         float(np.max(arr)), float(np.min(arr)),
-         float(now.hour), float(now.weekday()),
-         ram, disk]
-    ).reshape(1, -1)
+    # Здесь должно быть ровно то же самое количество, что и в train.py
+    features = list(arr) + [
+        float(np.mean(arr)), float(np.std(arr)),
+        float(np.max(arr)), float(np.min(arr)),
+        float(now.hour), float(now.weekday()),
+        float(ram), float(disk), float(net_rx), float(net_tx)
+    ]
+    return np.array(features).reshape(1, -1)
 
-def predict_steps(series, model, scaler, steps, lags=6,
+def predict_steps(series, model, scaler, steps, lags=60,
                   ram_series=None, disk_series=None):
     extended = list(series)
     ram  = float(ram_series[-1])  if ram_series  else 0.0
@@ -146,7 +147,7 @@ def run_forecast(metric: str, steps: int):
         ram  = fetch_series("ram_usage",  10) if metric != "ram_usage"  else series
         disk = fetch_series("disk_usage", 10) if metric != "disk_usage" else series
         preds = predict_steps(series, md["model"], md["scaler"],
-                              steps, md.get("lags",6), ram, disk)
+                              steps, md.get("lags",60), ram, disk)
         now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         timestamps = [now + timedelta(minutes=i+1) for i in range(steps)]
         save_predictions(metric, preds, timestamps, md.get("version","?"))
@@ -251,7 +252,7 @@ def predict(req: PredictRequest):
     ram  = fetch_series("ram_usage",  10) if req.metric != "ram_usage"  else series
     disk = fetch_series("disk_usage", 10) if req.metric != "disk_usage" else series
     preds = predict_steps(series, md["model"], md["scaler"],
-                          req.steps, md.get("lags",6), ram, disk)
+                          req.steps, md.get("lags",60), ram, disk)
     now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
     ts  = [(now + timedelta(minutes=i+1)).isoformat() for i in range(req.steps)]
     save_predictions(req.metric, preds, ts, md.get("version","?"))
@@ -347,7 +348,42 @@ def recommendation():
 
     rec = generate_recommendation(cpu_avg, ram_avg)
 
-    # Вставляем код сохранения в БД сюда
+# 1. Получаем текущий размер кластера из истории масштабирования
+    with c.cursor() as cur:
+        cur.execute("SELECT new_size FROM scaling_history ORDER BY event_time DESC LIMIT 1")
+        row = cur.fetchone()
+        current_size = row["new_size"] if row else 2
+
+    # 2. Генерируем рекомендацию с учетом текущего количества активных серверов
+    rec = generate_recommendation(cpu_avg, ram_avg, active_servers=current_size)
+
+    # 3. Рассчитываем новый размер кластера на основе управляющей команды
+    new_size = current_size
+    action = None
+    
+    if rec["recommendation"] == "ADD_2_SERVERS":
+        new_size = min(4, current_size + 2)
+        action = "SCALE_UP"
+    elif rec["recommendation"] == "ADD_SERVER":
+        new_size = min(4, current_size + 1)
+        action = "SCALE_UP"
+    elif rec["recommendation"] == "REMOVE_SERVER":
+        new_size = max(1, current_size - 1)
+        action = "SCALE_DOWN"
+
+    # 4. Если размер кластера изменился — записываем факт масштабирования в историю
+    if new_size != current_size and action:
+        with c.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO scaling_history (action, old_size, new_size, trigger_reason)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (action, current_size, new_size, rec["message"])
+            )
+        log.info(f"Инфраструктура изменена: {current_size} -> {new_size} серверов. Действие: {action}")
+
+    # 5. Сохраняем общую рекомендацию в стандартный лог (для LIVE таблицы)
     with c.cursor() as cur:
         cur.execute(
             """
@@ -367,13 +403,7 @@ def recommendation():
                 rec["status"],
                 rec["message"]
             )
-        )
-
-    return {
-        "predicted_cpu": round(cpu_avg, 2),
-        "predicted_ram": round(ram_avg, 2),
-        **rec
-    }
+        ) 
 
 
 @app.post("/simulate-scale")
